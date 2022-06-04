@@ -1,0 +1,616 @@
+---
+title: "analysis"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(skimr)
+source("R/utils.R")
+```
+
+# Load data
+
+```{r, message=FALSE,warning=FALSE}
+raw_data <- 
+  read_csv("data/sm_patient_questionnarie.csv")
+```
+
+Variable names.
+
+```{r}
+colnames(raw_data)
+```
+
+Create unique ids for each participant.
+
+```{r}
+raw_data <- 
+  raw_data %>% 
+  mutate(participant_id = 1:577) %>% 
+  select(participant_id, everything())
+```
+
+# Cleaning the dataset
+
+Deleting duplicates.
+
+```{r}
+processed_data <- 
+  raw_data %>% 
+  filter(participant_id %ni% c(274, 462))
+```
+
+Lets see how many participants have missing data.
+
+```{r}
+skim(processed_data)
+```
+
+Deleting participants with missing data.
+
+```{r}
+# processed_data <- 
+#   processed_data %>% 
+#   filter(participant_id != 348)
+```
+
+Filling up rows with empty input values.
+
+```{r}
+processed_data <-
+  processed_data %>%
+  mutate(not_sm_center = case_when(is.na(not_sm_center) ~ 0L,
+                                   TRUE ~ 1L))
+```
+
+Deleting participants not living in Hungary.
+
+```{r}
+not_in_hungary <- c(10, 30, 68, 71, 123, 125, 147, 249)
+
+processed_data <- 
+  processed_data %>% 
+  filter(participant_id %ni% not_in_hungary)
+```
+
+# EDA
+
+N all respondent.
+
+```{r}
+nrow(processed_data)
+```
+
+Sex count and percentage.
+
+```{r}
+count_and_prop(processed_data, sex)
+```
+
+Count patients treated in not SM center.
+
+```{r}
+count_and_prop(processed_data, not_sm_center)
+```
+
+Plot the same.
+
+```{r}
+plot_count_and_prop(processed_data, not_sm_center)
+```
+
+Count how many patients do not have a neurologist.
+
+```{r}
+count_and_prop(processed_data, no_neurologist_care)
+```
+
+Age count and percentage.
+
+```{r}
+count_and_prop(processed_data, age)
+```
+
+Distance from the SM center.
+
+```{r}
+processed_data %>% 
+  mutate(
+    sm_center_distance_final = case_when(
+      !is.na(sm_center_distance_drop) ~ NA_real_,
+      !is.na(sm_center_distance_changed) ~ sm_center_distance_changed,
+      is.na(sm_center_distance_changed) ~ as.numeric(str_extract(sm_center_distance, "\\d+"))),
+    sm_center_distance_grouped = case_when(
+      sm_center_distance_final < 10 ~ "Less than 10",
+      sm_center_distance_final >= 10 & sm_center_distance_final <= 50 ~ "Between 10 and 50",
+      sm_center_distance_final > 50 & sm_center_distance_final <= 100 ~ "Between 50 and 100",
+      sm_center_distance_final > 100 ~ "More than 100",
+      TRUE ~ NA_character_)
+    ) %>%
+  count_and_prop(sm_center_distance_grouped)
+```
+
+Number of patients who do not visit neurologist.
+
+```{r}
+processed_data %>% 
+  count(no_neurologist_care)
+```
+
+Age of patients who do not visit neurologist.
+
+```{r}
+processed_data %>% 
+  filter(no_neurologist_care == 1) %>% 
+  count_and_prop(age)
+```
+
+Number of patients having problem with transportation by age group.
+
+```{r}
+processed_data %>% 
+  count(transportation_problem, age) %>% 
+  group_by(transportation_problem) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100)
+```
+
+Check whether patients who have problem with transportation use the patient transportation system.
+
+```{r}
+processed_data %>% 
+  filter(transportation_problem == "igen") %>% 
+  count_and_prop(use_patient_transportation)
+```
+
+Check how often do patients meet with their doctors.
+
+```{r}
+processed_data %>% 
+  count_and_prop(doctor_visit)
+```
+
+Lets see the same by age group.
+
+```{r}
+processed_data %>% 
+  count(age, doctor_visit) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n))
+```
+
+Lets see how many patients are part of a social organization for patients.
+
+```{r}
+processed_data %>% 
+  count_and_prop(medical_group_membership)
+```
+
+Specifically for MSMBA.
+
+```{r}
+processed_data %>% 
+  count_and_prop(heard_msmba)
+```
+
+Do patient who did not hear previously about MSMBA want to know more about this organization?
+
+```{r}
+processed_data %>% 
+  filter(heard_msmba == "Nem") %>% 
+  count_and_prop(msmba_more_info)
+```
+
+Specifically for MANIT.
+
+```{r}
+processed_data %>% 
+  count_and_prop(heard_manit)
+```
+
+Lets see what do patients want to know more about.
+
+```{r}
+processed_data %>% 
+  select(participant_id, age, education_interest_order) %>% 
+  separate_rows(education_interest_order, sep = ";") %>% 
+  count(age, education_interest_order) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n)) %>% 
+  group_by(age) %>% 
+  top_n(3)
+```
+
+Check whether patients prepare for consultation with their doctor.
+
+```{r}
+processed_data %>% 
+  count_and_prop(prepare_consultation)
+```
+
+Lets see whether patients would be interested in getting funding for help if they had the opportunity.
+
+```{r}
+processed_data %>% 
+  count_and_prop(funding)
+```
+
+Check whether patients use aid for walking.
+
+```{r}
+processed_data %>% 
+  count_and_prop(walking_aid)
+```
+
+Same for age group.
+
+```{r}
+processed_data %>% 
+  count(age, walking_aid) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n))
+```
+
+Lets see if those who use a walking aid ever had financial problems in getting one.
+
+```{r}
+processed_data %>%
+  filter(walking_aid == "Igen") %>% 
+  count_and_prop(walking_aid_financial)
+```
+
+Lets see if they would be willing to buy walking aid.
+
+```{r}
+processed_data %>% 
+  count_and_prop(used_walking_aid)
+```
+
+If they are a member in a social helping which group is it?
+
+```{r}
+processed_data %>% 
+  filter(medical_group_membership == "Igen") %>% 
+  count_and_prop(which_medical_group) %>% 
+  arrange(desc(n))
+```
+
+Are they interested in further education regarding MS?
+
+```{r}
+processed_data %>% 
+  count_and_prop(sm_education)
+```
+
+Same per age group.
+
+```{r}
+processed_data %>% 
+  count(age, sm_education) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, sm_education)
+```
+
+Did they use any other method for consultation then phone or meeting in person?
+
+```{r}
+processed_data %>% 
+  count_and_prop(unusual_consultation_method)
+```
+
+Same per age group.
+
+```{r}
+processed_data %>% 
+  count(age, unusual_consultation_method) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n))
+```
+
+Which method did they use if they answered yes.
+
+```{r}
+processed_data %>% 
+  filter(unusual_consultation_method == "igen") %>% 
+  select(participant_id, unusual_consultation_method_description) %>% 
+  separate_rows(unusual_consultation_method_description, sep = ";") %>% 
+  count_and_prop(unusual_consultation_method_description)
+```
+
+Same for age group.
+
+```{r}
+processed_data %>% 
+  filter(unusual_consultation_method == "igen") %>% 
+  select(participant_id, age, unusual_consultation_method_description) %>% 
+  separate_rows(unusual_consultation_method_description, sep = ";") %>% 
+  count(age, unusual_consultation_method_description) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n)) %>% 
+  group_by(age) %>% 
+  top_n(3)
+```
+
+Which further education method is prefered?
+
+```{r}
+processed_data %>% 
+  select(participant_id, education_preferred_method) %>% 
+  separate_rows(education_preferred_method, sep = ";") %>% 
+  count_and_prop(education_preferred_method)
+```
+
+Same for age group.
+
+```{r}
+processed_data %>% 
+  select(participant_id, age, education_preferred_method) %>% 
+  separate_rows(education_preferred_method, sep = ";") %>% 
+  count(age, education_preferred_method) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n)) %>% 
+  group_by(age) %>% 
+  top_n(3)
+```
+
+Do they feel that their family understands their illness?
+
+```{r}
+processed_data %>% 
+  count_and_prop(family_understanding)
+```
+
+Who can they depend on?
+
+```{r}
+processed_data %>% 
+  select(participant_id, person_to_help) %>% 
+  separate_rows(person_to_help, sep = ";") %>% 
+  count_and_prop(person_to_help)
+```
+
+Same for age group.
+
+```{r}
+processed_data %>% 
+  select(participant_id, age, person_to_help) %>% 
+  separate_rows(person_to_help, sep = ";") %>% 
+  count(age, person_to_help) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n)) %>% 
+  group_by(age) %>% 
+  top_n(3)
+```
+
+Would they participate in MS education programs WITH their family?
+
+```{r}
+processed_data %>% 
+  count_and_prop(sm_edcuation_children)
+```
+
+Is it possible for relatives to join the consultation with the doctor?
+
+```{r}
+processed_data %>% 
+  count_and_prop(relative_consultation_option)
+```
+
+Do they want relatives to join?
+
+```{r}
+processed_data %>% 
+  count_and_prop(relative_consultation_need)
+```
+
+Would they be willing to go to psychologist?
+
+```{r}
+processed_data %>% 
+  count_and_prop(use_psychologist)
+```
+
+Same per age group.
+
+```{r}
+processed_data %>% 
+  count(age, use_psychologist) %>% 
+  group_by(age) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  arrange(age, desc(n))
+```
+
+What are the main reasons behind NOT wanting to go to psychologist?
+
+```{r}
+processed_data %>% 
+  filter(use_psychologist == "Nem") %>% 
+  count_and_prop(use_psychologist_code) %>% 
+  arrange(desc(n))
+```
+
+Main reasons behind wanting to go to a psychologist?
+
+```{r}
+processed_data %>% 
+  filter(use_psychologist %in% c("Igen", "igen")) %>% 
+  count_and_prop(use_psychologist_code) %>% 
+  arrange(desc(n))
+```
+
+Do patients ask for hep from a physiotherapist?
+
+```{r}
+processed_data %>% 
+  count_and_prop(use_physiotherapist)
+```
+
+What are the main reasons behind NOT asking for help?
+
+```{r}
+processed_data %>% 
+  filter(use_physiotherapist == "Nem") %>% 
+  count_and_prop(use_physiotherapist_code) %>% 
+  arrange(desc(n))
+```
+
+Do they use rehabilitation?
+
+```{r}
+processed_data %>% 
+  count_and_prop(use_rehabilitation)
+```
+
+What are the main reasons behind not using rehabilitation?
+
+```{r}
+processed_data %>% 
+  filter(use_rehabilitation == "Nem") %>% 
+  count_and_prop(use_rehabilitation_code) %>% 
+  arrange(desc(n))
+```
+
+***
+
+What are the most serious symptoms reported by the patients?
+
+```{r}
+processed_data %>% 
+  count_and_prop(biggest_drawback_code) %>% 
+  arrange(desc(n))
+```
+
+Do people who has bizonytalanság, pszichés, elfogadás, kognitív zavar as the biggest symptom go to psychological therapy?
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Psychological symptoms",
+                                  biggest_drawback_code %ni% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Other symptoms",
+                                  TRUE ~ NA_character_),
+         use_psychologist = tolower(use_psychologist)) %>%
+  count(symptom_type, use_psychologist) %>% 
+  group_by(symptom_type) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100)
+```
+
+The proportion of patients with psychological symptomps.
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Psychological symptoms",
+                                  biggest_drawback_code %ni% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Other symptoms",
+                                  TRUE ~ NA_character_)) %>% 
+  count_and_prop(symptom_type)
+```
+
+Why do patients with psychological symptoms do not go to psychologist?
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Psychological symptoms",
+                                  biggest_drawback_code %ni% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Other symptoms",
+                                  TRUE ~ NA_character_),
+         use_psychologist = tolower(use_psychologist)) %>%
+  filter(use_psychologist == "nem",
+         symptom_type == "Psychological symptoms") %>% 
+  count_and_prop(use_psychologist_code)
+```
+
+How big proportion of those who have mobilitás, fáradékonyság, egyensúlyzavar, fájdalom as main symptom goes to physical therapy?
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Physiological symptoms",
+                                  biggest_drawback_code %ni% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Other symptoms",
+                                  TRUE ~ NA_character_),
+         use_physiotherapist = tolower(use_physiotherapist)) %>%
+  count(symptom_type, use_physiotherapist) %>% 
+  group_by(symptom_type) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100)
+```
+
+Do they go to rehabilitation?
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Physiological symptoms",
+                                  biggest_drawback_code %ni% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Other symptoms",
+                                  TRUE ~ NA_character_),
+         use_rehabilitation = tolower(use_rehabilitation)) %>%
+  count(symptom_type, use_rehabilitation) %>% 
+  group_by(symptom_type) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100)
+```
+
+Do patients with mobilitás, egyensúlyzavar problems use walking aids?
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('mobilitás', 'egyensúlyzavar') ~ "Physiological symptoms",
+                                  biggest_drawback_code %ni% c('mobilitás', 'egyensúlyzavar') ~ "Other symptoms",
+                                  TRUE ~ NA_character_),
+         walking_aid = tolower(walking_aid)) %>%
+  count(symptom_type, walking_aid) %>% 
+  group_by(symptom_type) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100)
+```
+
+Educational interest.
+
+```{r}
+edu_interest_all <- 
+  processed_data %>%
+  select(participant_id, education_interest_order) %>% 
+  separate_rows(education_interest_order, sep = ";")
+
+edu_interest_options <- 
+  edu_interest_all %>% 
+  count(education_interest_order) %>% 
+  arrange(desc(n)) %>% 
+  slice_head(n = 23) %>% 
+  pull(education_interest_order)
+
+# filter only options that were present in the survey
+edu_interest_filtered <- 
+  edu_interest_all %>% 
+  dplyr::filter(education_interest_order %in% edu_interest_options)
+
+edu_interest_n <- 
+  edu_interest_filtered %>% 
+  distinct(participant_id) %>% 
+  nrow()
+
+edu_interest_filtered %>% 
+  count(education_interest_order) %>% 
+  arrange(desc(n)) %>% 
+  mutate(n_patients = edu_interest_n,
+         percentage_patients = n / n_patients * 100)
+```
+
+How many patients had an MRI lately?
+
