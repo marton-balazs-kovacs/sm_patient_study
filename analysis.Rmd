@@ -1,8 +1,11 @@
 ---
 title: "analysis"
 output:
-  word_document: default
   html_document: default
+  pdf_document: default
+  word_document: default
+editor_options:
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -16,7 +19,7 @@ source("R/utils.R")
 
 ```{r, message=FALSE,warning=FALSE}
 raw_data <- 
-  read_csv("data/sm_patient_questionnarie.csv")
+  read_csv("data/sm_patient_questionnarie_new.csv")
 ```
 
 Variable names.
@@ -50,21 +53,19 @@ Lets see how many participants have missing data.
 skim(processed_data)
 ```
 
-Deleting participants with missing data.
-
-```{r}
-# processed_data <- 
-#   processed_data %>% 
-#   filter(participant_id != 348)
-```
-
 Filling up rows with empty input values.
 
 ```{r}
 processed_data <-
   processed_data %>%
-  mutate(not_sm_center = case_when(is.na(not_sm_center) ~ 0L,
-                                   TRUE ~ 1L))
+  mutate(
+    not_sm_center = as.integer(not_sm_center),
+    not_sm_center = replace_na(not_sm_center, 0L),
+    not_sm_center = dplyr::case_when(
+      sm_center_name == "nem járok neurológushoz" ~ 1L,
+      TRUE ~ as.integer(not_sm_center)
+    )
+  )
 ```
 
 Deleting participants not living in Hungary.
@@ -76,6 +77,53 @@ processed_data <-
   processed_data %>% 
   filter(participant_id %ni% not_in_hungary)
 ```
+
+Some respondents when asked about their SM center choose the other option and described the center in free text instead of choosing on of the pre-defined options. We replace these options with the pre-defined text so that we can analyse the SM centers prevalence.
+
+```{r}
+processed_data <-
+  processed_data %>% 
+  mutate(
+    sm_center_name = case_when(
+      participant_id == 446 ~ "Csolnoky Ferenc kórház, Veszprém",
+      participant_id == 55 ~ "Szent-György kórház, Rendelőintézet, Székesfehérvár",
+      participant_id == 44 ~ "Péterfy Sándor utcai kórház, Budapest",
+      TRUE ~ sm_center_name
+    )
+  )
+```
+
+For the MRI data we had to change the free text responses in some cases. We also decided to drop the data in some cases we will also do that now.
+
+```{r}
+processed_data <-
+  processed_data %>% 
+  mutate(
+    last_mri_changed = as.character(last_mri_changed),
+    last_mri_drop = as.integer(last_mri_drop),
+    last_mri = case_when(
+      !is.na(last_mri_changed) ~ last_mri_changed,
+      last_mri_drop == 1L ~ NA_character_,
+      TRUE ~ last_mri
+    ),
+    last_mri = as.integer(last_mri)
+  )
+```
+
+We would also like to extract the year of the completion of the survey.
+
+```{r}
+processed_data <-
+  processed_data %>% 
+  mutate(
+    timestamp = as.character(timestamp),
+    year_completition = str_sub(timestamp, 1, 4),
+    year_completition = as.integer(year_completition),
+    last_mri_time = year_completition - last_mri
+    )
+```
+
+Note, that there are cases where the last time of the MRI was later than the completition of the survey, this have to be dropped.
 
 # EDA
 
@@ -101,6 +149,22 @@ Plot the same.
 
 ```{r}
 plot_count_and_prop(processed_data, not_sm_center)
+```
+
+List unique SM centers in the data.
+
+```{r}
+processed_data %>% 
+  filter(not_sm_center == 0L) %>% 
+  distinct(sm_center_name)
+```
+
+Count the number of patients treated in each SM center.
+
+```{r}
+processed_data %>% 
+  filter(not_sm_center == 0L) %>% 
+  count_and_prop(sm_center_name)
 ```
 
 Count how many patients do not have a neurologist.
@@ -167,11 +231,35 @@ processed_data %>%
   count_and_prop(use_patient_transportation)
 ```
 
-Check how often do patients meet with their doctors.
+Check how often do patients meet with their doctors. Only those who are in SM centers.
 
 ```{r}
 processed_data %>% 
+  filter(
+    not_sm_center == 0L
+    ) %>% 
   count_and_prop(doctor_visit)
+```
+
+Lets plot the results.
+
+```{r}
+processed_data %>% 
+  filter(
+    not_sm_center == 0L
+    ) %>% 
+  mutate(
+    doctor_visit = case_when(
+      doctor_visit == "3 havonta" ~ "Every 3 months",
+      doctor_visit == "évente" ~ "Yearly",
+      doctor_visit == "fél évente" ~ "Every 6 months",
+      doctor_visit == "ritkábban" ~ "Less often",
+      TRUE ~ NA_character_
+    ),
+    doctor_visit = as.factor(doctor_visit),
+    doctor_visit = fct_relevel(doctor_visit, c("Every 3 months", "Every 6 months", "Yearly", "Less often"))
+  ) %>% 
+  plot_count_and_prop(doctor_visit, FALSE, x_title = "How often do patients meet with their neurologist?")
 ```
 
 Lets see the same by age group.
@@ -225,7 +313,7 @@ processed_data %>%
   mutate(n_all = sum(n),
          percentage = n / n_all * 100) %>% 
   arrange(age, desc(n)) %>% 
-  group_by(age) %>% 
+  group_by(age) %>%
   top_n(3)
 ```
 
@@ -276,13 +364,47 @@ processed_data %>%
   count_and_prop(used_walking_aid)
 ```
 
-If they are a member in a social helping which group is it?
+If they are a member in a social helping which group is it? Because it was a multiple choice question with a lot of categories it is not easy to present the results in an understandable format.
 
 ```{r}
-processed_data %>% 
+# Number of participants with group membership
+n_group_membership <- 
+  processed_data %>% 
   filter(medical_group_membership == "Igen") %>% 
-  count_and_prop(which_medical_group) %>% 
-  arrange(desc(n))
+  nrow()
+
+group_membership_sum_data <- 
+  processed_data %>% 
+  filter(medical_group_membership == "Igen") %>% 
+  select(participant_id, which_medical_group) %>% 
+  separate_rows(which_medical_group, sep = ";") %>% 
+  mutate(
+    group_simplified = case_when(
+      which_medical_group %in% c("nyílt magyar facebook csoport", "zárt magyar facebook csoport (csak meghívóval csatlakozhat)") ~ "Hungarian FB group",
+      which_medical_group %in% c("nyílt más nyelvű facebook csoport", "zárt más nyelvű facebook csoport (csak meghívóval csatlakozhat)") ~ "Non Hungarian FB group",
+      which_medical_group == "Magyar Sclerosis Multiplexes Betegek Alapítványa" ~ "MSMBA",
+      which_medical_group %in% c("egyéb", "egyéb zárt fórumok") ~ "Other",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  group_by(participant_id, group_simplified) %>% 
+  summarize(n = n())
+```
+
+There were `r n_group_membership` participants who are part of any medical community groups. Out of these how many are part of at least one type of Hungarian FB group?
+
+```{r}
+group_membership_sum_data %>% 
+  filter(group_simplified == "Hungarian FB group") %>%
+  nrow()
+```
+
+How many of them are the part of MSMBA? As this was a multiple choice question there can be an overlap. It is possible to calculate the overlap but I do not think it is relevant.
+
+```{r}
+group_membership_sum_data %>% 
+  filter(group_simplified == "MSMBA") %>%
+  nrow()
 ```
 
 Are they interested in further education regarding MS?
@@ -538,6 +660,43 @@ processed_data %>%
   count_and_prop(use_psychologist_code)
 ```
 
+Same with plot.
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Psychological symptoms",
+                                  biggest_drawback_code %ni% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar') ~ "Other symptoms",
+                                  TRUE ~ NA_character_),
+         use_psychologist = tolower(use_psychologist)) %>%
+  filter(use_psychologist == "nem",
+         symptom_type == "Psychological symptoms") %>%
+  mutate(
+    use_psychologist_code = case_when(
+      use_psychologist_code == "nem elérhető a szolgáltatás" ~ "Service not available",
+      use_psychologist_code == "nem értelmezhető" ~ "Irrelevant response",
+      use_psychologist_code == "nincs bátorsága hozzá" ~ "Affraid to go",
+      use_psychologist_code == "nincs pénze rá" ~ "Financial reasons",
+      use_psychologist_code == "nincs szüksége rá" ~ "Not needed",
+      TRUE ~ "Not responded"
+    )
+  ) %>% 
+  count_and_prop(use_psychologist_code) %>% 
+  ggplot() +
+  aes(x = percentage, y = reorder(use_psychologist_code, n)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 60), labels = scales::label_percent(scale = 1)) +
+  scale_y_discrete(expand = c(0, 0)) +
+  labs(
+    y = "Percieved reasons behind not\nseeing a psychologist by the patients",
+    x = "Percentage"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = c(0.85, 0.8),
+    plot.margin = margin(t = 0.5, l = 0.5, r = 0.5, b = 0.5, unit='cm')
+  )
+```
+
 How big proportion of those who have mobilitás, fáradékonyság, egyensúlyzavar, fájdalom as main symptom goes to physical therapy?
 
 ```{r}
@@ -550,6 +709,40 @@ processed_data %>%
   group_by(symptom_type) %>% 
   mutate(n_all = sum(n),
          percentage = n / n_all * 100)
+```
+
+The same on a plot.
+
+```{r}
+processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Physiological symptoms",
+                                  biggest_drawback_code %ni% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Other symptoms",
+                                  TRUE ~ NA_character_),
+         use_physiotherapist = tolower(use_physiotherapist),
+         use_physiotherapist = case_when(
+           use_physiotherapist == "igen" ~ "Yes",
+           use_physiotherapist == "nem" ~ "No",
+           TRUE ~ NA_character_
+           )
+         ) %>%
+  count(symptom_type, use_physiotherapist) %>% 
+  group_by(symptom_type) %>% 
+  mutate(n_all = sum(n),
+         percentage = n / n_all * 100) %>% 
+  ggplot() +
+  aes(x = use_physiotherapist, y = percentage, fill = symptom_type) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100), labels = scales::label_percent(scale = 1)) +
+  labs(
+    x = "Does the patient go to physiotherapy?",
+    y = "Percentage",
+    fill = "Symptom type"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = c(0.85, 0.8),
+    plot.margin = margin(t = 0.5, l = 0.5, r = 0.5, b = 0.5, unit='cm')
+  )
 ```
 
 Do they go to rehabilitation?
@@ -614,3 +807,11 @@ edu_interest_filtered %>%
 
 How many patients had an MRI lately?
 
+```{r}
+processed_data %>% 
+  filter(
+    last_mri_time >= 0,
+    not_sm_center == 0L
+    ) %>% 
+  count_and_prop(last_mri_time)
+```
