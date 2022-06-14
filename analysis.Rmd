@@ -273,7 +273,9 @@ processed_data %>%
     axis.text.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0, unit = "pt")),
     axis.text = element_text(size = 33),
     axis.ticks = element_line(size = 1, color = 'black'),
-    axis.line = element_line(size = 1)
+    axis.line = element_line(size = 1),
+    panel.background = element_rect(fill = "#dddddd"),
+    plot.background = element_rect(fill = "#dddddd")
   )
 ```
 
