@@ -4,13 +4,16 @@ count_and_prop <- function(df, var_name) {
   df %>% 
     count({{var_name}}) %>% 
     ungroup() %>% 
-    mutate(n_all = sum(n),
-           percentage = n / n_all * 100)
+    mutate(
+      n_all = sum(n),
+      percentage = n / n_all * 100,
+      text = paste0(n, "/", n_all)
+      )
 }
 
 '%ni%' <- Negate('%in%')
 
-plot_count_and_prop <- function(df, var_name, theme_apa = TRUE, x_title = NULL) {
+plot_count_and_prop <- function(df, var_name, theme_apa = TRUE, x_title = NULL, limit_upper = 100, text_size = 10) {
   plot <-
     df %>% 
     count_and_prop({{var_name}}) %>%
@@ -22,7 +25,8 @@ plot_count_and_prop <- function(df, var_name, theme_apa = TRUE, x_title = NULL) 
       y = percentage
     ) +
     ggplot2::geom_bar(stat = "identity") +
-    ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 100), labels = scales::label_percent(scale = 1)) +
+    ggplot2::geom_text(aes(label = text), size = text_size, vjust = -0.5) +
+    ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, limit_upper), labels = scales::label_percent(scale = 1)) +
     ggplot2::labs(
       y = "Percentage"
       )

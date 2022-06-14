@@ -259,7 +259,22 @@ processed_data %>%
     doctor_visit = as.factor(doctor_visit),
     doctor_visit = fct_relevel(doctor_visit, c("Every 3 months", "Every 6 months", "Yearly", "Less often"))
   ) %>% 
-  plot_count_and_prop(doctor_visit, FALSE, x_title = "How often do patients meet with their neurologist?")
+  plot_count_and_prop(
+    doctor_visit,
+    FALSE,
+    x_title = "How often do patients meet with their neurologist?",
+    limit_upper = 65,
+    text_size = 12
+    ) +
+  theme(
+    axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0, unit = "pt")),
+    axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0, unit = "pt")),
+    axis.title = element_text(size = 43),
+    axis.text.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0, unit = "pt")),
+    axis.text = element_text(size = 33),
+    axis.ticks = element_line(size = 1, color = 'black'),
+    axis.line = element_line(size = 1)
+  )
 ```
 
 Lets see the same by age group.
@@ -637,7 +652,7 @@ processed_data %>%
          percentage = n / n_all * 100)
 ```
 
-The proportion of patients with psychological symptomps.
+The proportion of patients with psychological symptoms.
 
 ```{r}
 processed_data %>%
@@ -715,8 +730,8 @@ The same on a plot.
 
 ```{r}
 processed_data %>%
-  mutate(symptom_type = case_when(biggest_drawback_code %in% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Physiological symptoms",
-                                  biggest_drawback_code %ni% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom') ~ "Other symptoms",
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom', 'izomgörcsök', 'zsibbadás') ~ "Physical",
+                                  biggest_drawback_code %ni% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom', 'izomgörcsök', 'zsibbadás') ~ "Non-physical",
                                   TRUE ~ NA_character_),
          use_physiotherapist = tolower(use_physiotherapist),
          use_physiotherapist = case_when(
@@ -724,24 +739,113 @@ processed_data %>%
            use_physiotherapist == "nem" ~ "No",
            TRUE ~ NA_character_
            )
-         ) %>%
+         ) %>% 
   count(symptom_type, use_physiotherapist) %>% 
   group_by(symptom_type) %>% 
-  mutate(n_all = sum(n),
-         percentage = n / n_all * 100) %>% 
+  mutate(
+    n_all = sum(n),
+    percentage = n / n_all * 100,
+    text = paste0(n, "/", n_all)
+    ) %>%
   ggplot() +
-  aes(x = use_physiotherapist, y = percentage, fill = symptom_type) +
+  aes(x = symptom_type, y = percentage, fill = use_physiotherapist) +
   geom_bar(stat = "identity", position = "dodge") +
-  scale_y_continuous(expand = c(0, 0), limits = c(0, 100), labels = scales::label_percent(scale = 1)) +
+  geom_text(aes(label = text, group = use_physiotherapist), position = position_dodge(width = 0.9), vjust = -0.5, size = 15) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 80), labels = scales::label_percent(scale = 1)) +
   labs(
-    x = "Does the patient go to physiotherapy?",
+    fill = "Does the patient go to physiotherapy?",
     y = "Percentage",
-    fill = "Symptom type"
+    x = "Main confounding symptom"
   ) +
   theme_classic() +
   theme(
     legend.position = c(0.85, 0.8),
-    plot.margin = margin(t = 0.5, l = 0.5, r = 0.5, b = 0.5, unit='cm')
+    plot.margin = margin(t = 0.5, l = 0.5, r = 0.5, b = 0.5, unit = 'cm')
+  )
+```
+
+Check whether patients who indicated that psychological and physical symptoms are their main confounding symptoms go to corresponding treatment options.
+
+```{r}
+plot_data_all <- 
+  processed_data %>%
+  mutate(symptom_type = case_when(biggest_drawback_code %in% c('mobilitás', 'fáradékonyság', 'egyensúlyzavar', 'fájdalom', 'izomgörcsök', 'zsibbadás') ~ "Physical",
+                                  biggest_drawback_code %in% c('bizonytalanság', 'pszichés', 'elfogadás', 'kognitív zavar', 'izoláció') ~ "Psychological",
+                                  TRUE ~ NA_character_),
+         use_physiotherapist = tolower(use_physiotherapist),
+         use_psychologist = tolower(use_psychologist),
+         use_psychologist = case_when(
+           use_psychologist == "igen" ~ "Yes",
+           use_psychologist == "nem" ~ "No",
+           TRUE ~ NA_character_
+           ),
+         use_physiotherapist = case_when(
+           use_physiotherapist == "igen" ~ "Yes",
+           use_physiotherapist == "nem" ~ "No",
+           TRUE ~ NA_character_
+           )
+         ) %>% 
+  filter(!is.na(symptom_type)) %>% 
+  select(participant_id, symptom_type, use_physiotherapist, use_psychologist)
+
+plot_data_physical <- 
+  plot_data_all %>% 
+  filter(symptom_type == "Physical") %>% 
+  select(-use_psychologist) %>% 
+  count(use_physiotherapist, symptom_type) %>% 
+  mutate(
+    n_all = sum(n),
+    percentage = n / n_all * 100,
+    text = paste0(n, "/", n_all)
+    ) %>% 
+  rename(use = use_physiotherapist)
+
+plot_data_psychological <- 
+  plot_data_all %>% 
+  filter(symptom_type == "Psychological") %>% 
+  select(-use_physiotherapist) %>% 
+  count(use_psychologist, symptom_type) %>% 
+  mutate(
+    n_all = sum(n),
+    percentage = n / n_all * 100,
+    text = paste0(n, "/", n_all)
+    ) %>% 
+  rename(use = use_psychologist)
+
+plot_data_merged <- bind_rows(
+  plot_data_physical,
+  plot_data_psychological
+  )
+
+plot_data_merged %>% 
+  ggplot() +
+  aes(x = symptom_type, y = percentage, fill = use) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = text, group = use), position = position_dodge(width = 0.9), vjust = -0.5, size = 15) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100), labels = scales::label_percent(scale = 1)) +
+  scale_fill_manual(values=c("#8c1616", "grey35")) +
+  labs(
+    fill = "Does the patient\ngo to therapy?",
+    y = "Percentage",
+    x = "Main confunding symptom"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = c(0.85, 0.8),
+    legend.title = element_text(size = 35),
+    legend.text = element_text(size = 30),
+    legend.background = element_rect(fill = "#b3cac7"),
+    legend.key.size = unit(1, 'cm'),
+    axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0, unit = "pt")),
+    # axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0, unit = "pt")),
+    axis.title = element_text(size = 45),
+    # axis.text.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0, unit = "pt")),
+    axis.text = element_text(size = 35),
+    axis.ticks = element_line(size = 1, color = 'black'),
+    axis.line = element_line(size = 1, color = 'black'),
+    plot.margin = margin(t = 1, l = 0.5, r = 0.5, b = 0.5, unit = 'cm'),
+    panel.background = element_rect(fill = "#b3cac7"),
+    plot.background = element_rect(fill = "#b3cac7")
   )
 ```
 
